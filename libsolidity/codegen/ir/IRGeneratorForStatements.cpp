@@ -908,6 +908,40 @@ void IRGeneratorForStatements::endVisit(FunctionCall const& _functionCall)
 
 		break;
 	}
+	case FunctionType::Kind::Revert:
+	{
+		solAssert(arguments.size() == parameterTypes.size(), "");
+		if (arguments.empty())
+			m_code <<  "revert(0, 0)\n";
+		else
+			solAssert(false, "");
+
+		break;
+	}
+	case FunctionType::Kind::Send:
+	case FunctionType::Kind::Transfer:
+	{
+		solAssert(arguments.size() == 1 && parameterTypes.size() == 1, "");
+		string address{IRVariable(_functionCall.expression()).part("address").name()};
+		string value{expressionAsType(*arguments[0], *(parameterTypes[0]))};
+		Whiskers templ(R"(
+		let <success> := call(0, <address>, <value>, 0, 0, 0, 0)
+		<?isTransfer>
+			if iszero(<success>) { <forwardingRevert>() }
+		</isTransfer>
+		)");
+		templ("address", address);
+		templ("value", value);
+		if (functionType->kind() == FunctionType::Kind::Transfer)
+			templ("success", m_context.newYulVariable());
+		else
+			templ("success", IRVariable(_functionCall).commaSeparatedList());
+		templ("isTransfer", functionType->kind() == FunctionType::Kind::Transfer);
+		templ("forwardingRevert", m_utils.forwardingRevertFunction());
+		m_code << templ.render();
+
+		break;
+	}
 	default:
 		solUnimplemented("FunctionKind " + toString(static_cast<int>(functionType->kind())) + " not yet implemented");
 	}
